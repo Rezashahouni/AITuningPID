@@ -5,7 +5,7 @@ from pyswarm import pso
 import skfuzzy as fuzz
 from skfuzzy import control as ctrl
 from geneticalgorithm import geneticalgorithm as ga
-import networkx as nx  # Ensure networkx is installed
+import networkx as nx  
 
 class PIDController:
     def __init__(self, Kp, Ki, Kd, setpoint):
@@ -40,10 +40,8 @@ process_variable = 0.0
 process_values = []
 setpoints = []
 
-
-# ANN for PID tuning with 2 hidden layers, using MSE as the loss function and Adam optimizer
-ann = MLPRegressor(hidden_layer_sizes=(10, 10), max_iter=1000, solver='adam', alpha=0.0001)
-
+# ANN for PID tuning with 4 hidden layers, using MSE as the loss function and Adam optimizer
+ann = MLPRegressor(hidden_layer_sizes=(10, 10, 10, 10), max_iter=1000, solver='adam', alpha=0.0001)
 
 # PSO for PID tuning
 def objective(params):
@@ -58,7 +56,6 @@ def objective(params):
         if t > 1.5 and abs(setpoint - process_variable) > 0.05 * setpoint:
             total_error += 1000  # Penalize if not settled within 1.5 seconds
     return total_error
-
 
 # Initial guess and bounds for PSO
 initial_guess = [1.0, 0.1, 0.05]
@@ -75,55 +72,6 @@ algorithm_param = {'max_num_iteration': 100, 'population_size': 50, 'mutation_pr
 model = ga(function=objective, dimension=3, variable_type='real', variable_boundaries=varbound, algorithm_parameters=algorithm_param)
 model.run()
 
-
-# FLC setup
-error = ctrl.Antecedent(np.arange(-10, 10, 0.1), 'error')
-delta_error = ctrl.Antecedent(np.arange(-10, 10, 0.1), 'delta_error')
-Kp = ctrl.Consequent(np.arange(0, 10, 0.1), 'Kp')
-Ki = ctrl.Consequent(np.arange(0, 1, 0.01), 'Ki')
-Kd = ctrl.Consequent(np.arange(0, 1, 0.01), 'Kd')
-
-# Membership functions
-error.automf(3)
-delta_error.automf(3)
-Kp.automf(3)
-Ki.automf(3)
-Kd.automf(3)
-
-# Fuzzy rules
-rule1 = ctrl.Rule(error['poor'] & delta_error['poor'], (Kp['good'], Ki['good'], Kd['good']))
-rule2 = ctrl.Rule(error['average'] & delta_error['average'], (Kp['average'], Ki['average'], Kd['average']))
-rule3 = ctrl.Rule(error['good'] & delta_error['good'], (Kp['poor'], Ki['poor'], Kd['poor']))
-
-# Control system
-pid_ctrl = ctrl.ControlSystem([rule1, rule2, rule3])
-pid_sim = ctrl.ControlSystemSimulation(pid_ctrl)
-
-# GA for optimizing FLC
-def flc_objective(params):
-    Kp_opt, Ki_opt, Kd_opt = params
-    pid = PIDController(Kp_opt, Ki_opt, Kd_opt, setpoint)
-    process_variable = 0.0
-    total_error = 0.0
-    for t in time:
-        pid_sim.input['error'] = setpoint - process_variable
-        pid_sim.input['delta_error'] = (setpoint - process_variable) - pid.previous_error
-        pid_sim.compute()
-        pid.Kp = pid_sim.output['Kp']
-        pid.Ki = pid_sim.output['Ki']
-        pid.Kd = pid_sim.output['Kd']
-        control_signal = pid.update(process_variable, dt)
-        process_variable += control_signal * dt
-        total_error += abs(setpoint - process_variable)
-    return total_error
-
-# GA parameters
-varbound = np.array([[0, 10], [0, 1], [0, 1]])
-algorithm_param = {'max_num_iteration': 100, 'population_size': 50, 'mutation_probability': 0.1, 'elit_ratio': 0.01, 'crossover_probability': 0.5, 'parents_portion': 0.3, 'crossover_type': 'uniform', 'max_iteration_without_improv': None}
-
-model = ga(function=flc_objective, dimension=3, variable_type='real', variable_boundaries=varbound, algorithm_parameters=algorithm_param)
-model.run()
-
 # Get optimized parameters
 Kp_opt, Ki_opt, Kd_opt = model.output_dict['variable']
 
@@ -137,12 +85,6 @@ pid = PIDController(Kp_opt, Ki_opt, Kd_opt, setpoint)
 
 # Simulation loop with optimized PID
 for t in time:
-    pid_sim.input['error'] = setpoint - process_variable
-    pid_sim.input['delta_error'] = (setpoint - process_variable) - pid.previous_error
-    pid_sim.compute()
-    pid.Kp = pid_sim.output['Kp']
-    pid.Ki = pid_sim.output['Ki']
-    pid.Kd = pid_sim.output['Kd']
     control_signal = pid.update(process_variable, dt)
     process_variable += control_signal * dt
     process_values.append(process_variable)
@@ -152,7 +94,6 @@ for t in time:
 print(f"Optimized PID parameters: Kp={Kp_opt}, Ki={Ki_opt}, Kd={Kd_opt}")
 print(f"Final setpoint: {setpoint}")
 print(f"Final process value: {process_values[-1]}")
-
 # Calculate settling time
 tolerance = 0.05 * setpoint  # 5% tolerance
 settling_time = None
@@ -173,9 +114,10 @@ plt.plot(time, process_values, label='Process Value')
 plt.plot(time, setpoints, label='Setpoint', linestyle='--')
 plt.axhline(setpoint + tolerance, color='r', linestyle='--', label='Upper Tolerance')
 plt.axhline(setpoint - tolerance, color='r', linestyle='--', label='Lower Tolerance')
-plt.xlabel('Time (s)')
+plt.xlabel('Time (min)')
 plt.ylabel('Value')
 plt.title('Process Variable and Setpoint')
 plt.legend()
 plt.grid(True)
 plt.show()
+
